@@ -2,7 +2,9 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import webbrowser
+from datetime import datetime
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -12,6 +14,15 @@ ROOT = Path(__file__).resolve().parent
 DATA = ROOT / "data.json"
 ENTRY_PATH = re.compile(r"^/api/entries/([A-Za-z0-9_-]+)$")
 lock = Lock()
+
+
+def git(*args):
+    env = os.environ.copy()
+    env["GIT_SSH_COMMAND"] = "ssh -o BatchMode=yes -o ConnectTimeout=10"
+    return subprocess.run(
+        ["git", *args], cwd=ROOT, env=env, capture_output=True,
+        text=True, check=True, timeout=60,
+    ).stdout.strip()
 
 
 def load():
@@ -44,6 +55,50 @@ class Handler(SimpleHTTPRequestHandler):
                 self.send_json(load())
             return
         super().do_GET()
+
+    def do_POST(self):
+        if self.path != "/api/sync":
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
+        origin = self.headers.get("Origin")
+        if origin and origin != f"http://{self.headers.get('Host')}":
+            self.send_json({"error": "请求来源不匹配"}, HTTPStatus.FORBIDDEN)
+            return
+        if self.headers.get("Content-Type") != "application/json":
+            self.send_json({"error": "需要 JSON 请求"}, HTTPStatus.BAD_REQUEST)
+            return
+        try:
+            payload = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            entries = payload["entries"]
+            if not isinstance(entries, list) or any(
+                not isinstance(e, dict) or not isinstance(e.get("id"), str)
+                or not re.fullmatch(r"[A-Za-z0-9_-]+", e["id"])
+                or not e.get("date") or not isinstance(e.get("experiments"), list)
+                for e in entries
+            ):
+                raise ValueError("卡片数据不完整")
+        except (ValueError, KeyError, TypeError) as err:
+            self.send_json({"error": f"无法保存：{err}"}, HTTPStatus.BAD_REQUEST)
+            return
+        try:
+            with lock:
+                board = load()
+                updates = {e["id"]: e for e in entries}
+                board["entries"] = [updates.pop(e["id"], e) for e in board["entries"]]
+                board["entries"].extend(updates.values())
+                if entries:
+                    dump(board)
+                if git("diff", "HEAD", "--", "data.json"):
+                    git("commit", "--only", "-m", f"Update research progress {datetime.now():%Y-%m-%d %H:%M}", "--", "data.json")
+                # 即使没有新改动，也重试上次尚未推送的提交。
+                git("push", "origin", "HEAD:main")
+        except subprocess.CalledProcessError as err:
+            self.send_json({"error": "内容已保存在本机，同步失败：" + (err.stderr or err.stdout).strip()}, HTTPStatus.BAD_GATEWAY)
+            return
+        except subprocess.TimeoutExpired:
+            self.send_json({"error": "内容已保存在本机，同步超时，请检查网络后重试。"}, HTTPStatus.GATEWAY_TIMEOUT)
+            return
+        self.send_json({"message": "已同步到 GitHub"})
 
     def do_PUT(self):
         m = ENTRY_PATH.match(self.path)

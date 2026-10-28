@@ -136,7 +136,9 @@
     <h2>每日记录</h2>
     <input class="search" id="q" placeholder="搜索日期 / 关键词，例如 ICL、InternVL">
     <button class="btn primary" id="add">＋ 新增卡片</button>
+    <button class="btn" id="sync" disabled>同步到 GitHub</button>
   </div>
+  <div class="hint" id="sync-msg" role="status" aria-live="polite"></div>
   <div class="hint" style="margin:-8px 0 14px">卡片内容支持 Markdown：<code>- 列表</code>、<code>1. 编号</code>、<code>**加粗**</code>、<code>`代码`</code></div>
   <div class="grid" id="grid"></div>
 </main>
@@ -165,7 +167,13 @@ async function api(method, path, body) {
     method, headers: body ? { "Content-Type": "application/json" } : {},
     body: body ? JSON.stringify(body) : undefined,
   });
-  if (!r.ok) throw new Error(`${method} ${path} 失败：${r.status} ${await r.text()}`);
+  if (!r.ok) {
+    if (r.headers.get("Content-Type")?.includes("application/json")) {
+      const detail = await r.json();
+      throw new Error(detail.error || `请求失败：${r.status}`);
+    }
+    throw new Error(`${method} ${path} 失败：${r.status} ${await r.text()}`);
+  }
   return r.json();
 }
 
@@ -354,8 +362,50 @@ document.getElementById("add").onclick = () => {
   c.el.querySelector('[name="task"]').focus();
 };
 qInput.addEventListener("input", filter);
+let syncing = false;
+document.getElementById("sync").onclick = async () => {
+  const btn = document.getElementById("sync");
+  const msg = document.getElementById("sync-msg");
+  if (grid.querySelector('[data-act="save"]:disabled')) {
+    msg.textContent = "卡片正在保存，请保存完成后再同步。";
+    return;
+  }
+  const edits = [...cards.values()].filter(c => c.editing);
+  const entries = edits.map(c => readForm(c.el, c.entry.id));
+  if (entries.some(e => !e.date)) {
+    msg.textContent = "请先填写所有正在编辑卡片的日期。";
+    return;
+  }
+  // 保存与推送期间冻结编辑，避免请求发出后又出现未保存的修改。
+  syncing = true;
+  btn.disabled = true;
+  btn.textContent = "正在同步…";
+  document.getElementById("add").disabled = true;
+  grid.inert = true;
+  msg.textContent = "正在保存内容并推送到 GitHub…";
+  try {
+    const result = await api("POST", "/api/sync", { entries });
+    edits.forEach((c, i) => {
+      c.entry = entries[i];
+      c.editing = false;
+      c.isNew = false;
+      paint(c);
+    });
+    layout();
+    renderSub();
+    msg.textContent = `${result.message} · ${new Date().toLocaleTimeString()}`;
+  } catch (err) {
+    msg.textContent = failText("同步", err);
+  } finally {
+    syncing = false;
+    btn.disabled = false;
+    btn.textContent = "同步到 GitHub";
+    document.getElementById("add").disabled = false;
+    grid.inert = false;
+  }
+};
 window.addEventListener("beforeunload", ev => {
-  if ([...cards.values()].some(c => c.editing)) ev.preventDefault();
+  if (syncing || [...cards.values()].some(c => c.editing)) ev.preventDefault();
 });
 
 (async () => {
@@ -370,6 +420,7 @@ window.addEventListener("beforeunload", ev => {
   board.entries.forEach(e => mount(e));
   layout();
   renderSub();
+  document.getElementById("sync").disabled = false;
 })();
 </script>
 </body>
