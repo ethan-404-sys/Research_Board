@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>科研进度看板</title>
+<style>
+  :root {
+    --bg: #faf9f5; --panel: #f5f4ee; --card: #ffffff; --text: #141413; --text-2: #3d3d3a;
+    --muted: #73726c; --line: #e5e3da; --line-strong: #d6d3c8;
+    --accent: #c96442; --accent-hover: #b5563a; --accent-soft: #f6e7df; --on-accent: #ffffff;
+    --done: #5a7a4a; --done-soft: #e8eedf; --run: #b07a1e; --run-soft: #f6ecd6;
+    --bad: #b5453a; --bad-soft: #f6e0dc; --code-bg: #efede4;
+    --shadow: 0 1px 2px rgba(20, 20, 19, .04), 0 2px 8px rgba(20, 20, 19, .04);
+    --serif: "Iowan Old Style", "Palatino", Georgia, "Songti SC", "Noto Serif CJK SC", "Source Han Serif SC", serif;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #262624; --panel: #2b2b29; --card: #30302e; --text: #f5f4ee; --text-2: #dedcd2;
+      --muted: #a6a39a; --line: #3e3e3a; --line-strong: #4a4a45;
+      --accent: #d97757; --accent-hover: #e38a6c; --accent-soft: #45332b; --on-accent: #1f1e1d;
+      --done: #9cbc86; --done-soft: #33402c; --run: #e0b261; --run-soft: #463b24;
+      --bad: #e8877b; --bad-soft: #4a2f2a; --code-bg: #3a3a36;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .2), 0 2px 8px rgba(0, 0, 0, .15);
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.65 var(--sans);
+    -webkit-font-smoothing: antialiased; }
+  main { max-width: 1320px; margin: 0 auto; padding: 40px 24px 80px; }
+  h1 { font: 500 30px/1.25 var(--serif); margin: 0 0 6px; letter-spacing: -.01em; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 28px; }
+  h2 { font: 500 21px/1.3 var(--serif); margin: 0; }
+  code { font-family: var(--mono); font-size: .86em; background: var(--code-bg);
+    padding: 1px 5px; border-radius: 4px; }
+
+  /* 流程 */
+  .pipeline { display: grid; grid-template-columns: repeat(var(--n), 1fr); gap: 28px; margin-bottom: 44px; }
+  .stage { position: relative; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 14px; padding: 14px 16px; }
+  .stage:not(:last-child)::after { content: "→"; position: absolute; right: -21px; top: 15px;
+    color: var(--muted); }
+  .stage .idx { font-size: 12px; color: var(--muted); }
+  .stage .name { font: 500 16px/1.4 var(--serif); margin: 3px 0 4px; }
+  .stage .note { font-size: 13px; color: var(--muted); }
+  .stage.done .idx { color: var(--done); }
+  .stage.todo { opacity: .6; border-style: dashed; background: transparent; }
+  .stage.current { background: var(--card); border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .stage.current .idx { color: var(--accent); font-weight: 600; }
+
+  /* 工具栏 */
+  .head { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+  .head h2 { margin-right: auto; }
+  .search { width: 280px; max-width: 100%; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--line-strong);
+    background: var(--card); color: var(--text); font: inherit; font-size: 14px; }
+  .search:focus, .field input:focus, .field select:focus, .field textarea:focus {
+    outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .btn { padding: 7px 14px; border-radius: 10px; border: 1px solid var(--line-strong); background: var(--card);
+    color: var(--text); cursor: pointer; font: inherit; font-size: 13px; line-height: 1.4; white-space: nowrap; }
+  .btn:hover { background: var(--panel); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 500; }
+  .btn.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+  .btn.ghost { border-color: transparent; background: transparent; color: var(--muted); padding: 4px 10px; }
+  .btn.ghost:hover { background: var(--panel); color: var(--text); }
+  .btn.danger { color: var(--bad); border-color: transparent; background: transparent; }
+  .btn.danger:hover { background: var(--bad-soft); }
+  .btn:disabled { opacity: .5; cursor: default; }
+
+  /* 卡片 */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 18px; align-items: start; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow);
+    padding: 18px 20px 16px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+  .card.editing { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .card[hidden] { display: none; }
+  .card-head { display: flex; align-items: center; gap: 10px; }
+  .date { font: 500 19px/1.2 var(--serif); font-variant-numeric: tabular-nums; }
+  .weekday { color: var(--muted); font-size: 13px; }
+  .tag { font-size: 12px; color: var(--accent); background: var(--accent-soft); padding: 1px 9px; border-radius: 99px; }
+  .card-head .btn { margin-left: auto; }
+  .sec h3 { font: 600 12px/1.4 var(--sans); color: var(--muted); letter-spacing: .08em; margin: 0 0 4px; }
+  .md { font-family: var(--serif); font-size: 15px; color: var(--text-2); overflow-wrap: anywhere; }
+  .md > :first-child { margin-top: 0; }
+  .md > :last-child { margin-bottom: 0; }
+  .md p { margin: 6px 0; }
+  .md ul, .md ol { margin: 4px 0; padding-left: 20px; }
+  .md li { margin: 2px 0; }
+  .md strong { color: var(--text); }
+  .empty { color: var(--muted); font-size: 14px; }
+  .exp { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin-bottom: 8px; background: var(--panel); }
+  .exp:last-child { margin-bottom: 0; }
+  .exp-head { display: flex; gap: 8px; align-items: center; font: 500 15px/1.4 var(--serif); margin-bottom: 4px; }
+  .st { font: 600 11px/1.6 var(--sans); padding: 0 8px; border-radius: 99px; flex-shrink: 0; }
+  .st.planned { background: var(--line); color: var(--muted); }
+  .st.running { background: var(--run-soft); color: var(--run); }
+  .st.done { background: var(--done-soft); color: var(--done); }
+  .st.failed { background: var(--bad-soft); color: var(--bad); }
+  .result { margin-top: 8px; padding: 6px 10px; border-left: 3px solid var(--accent); background: var(--card);
+    border-radius: 0 8px 8px 0; }
+  .result .label { font: 600 12px/1.4 var(--sans); color: var(--accent); }
+
+  /* 编辑 */
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field > span { font: 600 12px/1.4 var(--sans); color: var(--muted); letter-spacing: .06em; }
+  .field input, .field select, .field textarea { font: inherit; font-size: 14px; color: var(--text); background: var(--bg);
+    border: 1px solid var(--line-strong); border-radius: 8px; padding: 6px 9px; width: 100%; }
+  .field textarea { font-family: var(--mono); font-size: 13px; line-height: 1.55; resize: vertical; min-height: 60px; }
+  .row { display: flex; gap: 10px; }
+  .row > * { flex: 1; min-width: 0; }
+  .exp-edit { border: 1px dashed var(--line-strong); border-radius: 12px; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+  .exp-edit .row > .narrow { flex: 0 0 96px; }
+  .exp-edit .btn.danger { align-self: flex-end; padding: 3px 8px; font-size: 12px; }
+  .actions { display: flex; gap: 8px; align-items: center; border-top: 1px solid var(--line); padding-top: 12px; }
+  .actions .danger { margin-left: auto; }
+  .msg { font-size: 12px; color: var(--bad); }
+  .hint { color: var(--muted); font-size: 12px; }
+
+  @media (max-width: 760px) {
+    main { padding: 28px 16px 60px; }
+    .pipeline { grid-template-columns: 1fr; gap: 22px; }
+    .stage:not(:last-child)::after { content: "↓"; right: auto; left: 50%; top: auto; bottom: -24px; }
+    .grid { grid-template-columns: 1fr; }
+    .search { width: 100%; order: 3; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1 id="title">科研进度看板</h1>
+  <div class="sub" id="sub"></div>
+
+  <div class="pipeline" id="pipeline"></div>
+
+  <div class="head">
+    <h2>每日记录</h2>
+    <input class="search" id="q" placeholder="搜索日期 / 关键词，例如 ICL、InternVL">
+    <button class="btn primary" id="add">＋ 新增卡片</button>
+  </div>
+  <div class="hint" style="margin:-8px 0 14px">卡片内容支持 Markdown：<code>- 列表</code>、<code>1. 编号</code>、<code>**加粗**</code>、<code>`代码`</code></div>
+  <div class="grid" id="grid"></div>
+</main>
+
+<script src="vendor/marked.min.js"></script>
+<script>
+const STATUS = { planned: "计划", running: "进行中", done: "完成", failed: "无效" };
+const WEEK = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+
+let board;
+const cards = new Map();      // id -> { entry, el, editing, isNew }
+const grid = document.getElementById("grid");
+const qInput = document.getElementById("q");
+
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const md = s => s && s.trim() ? `<div class="md">${marked.parse(s, { breaks: true })}</div>` : `<div class="empty">—</div>`;
+const today = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+const weekday = date => WEEK[new Date(date + "T00:00:00").getDay()];
+const currentStage = () => board.stages.find(s => s.status === "current");
+
+async function api(method, path, body) {
+  const r = await fetch(path, {
+    method, headers: body ? { "Content-Type": "application/json" } : {},
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!r.ok) throw new Error(`${method} ${path} 失败：${r.status} ${await r.text()}`);
+  return r.json();
+}
+
+// ---------- 流程 ----------
+function renderPipeline() {
+  const pipe = document.getElementById("pipeline");
+  pipe.style.setProperty("--n", board.stages.length);
+  pipe.innerHTML = board.stages.map((s, i) => `
+    <div class="stage ${s.status || "todo"}">
+      <div class="idx">阶段 ${i + 1}${s.status === "current" ? " · 当前" : s.status === "done" ? " · 已完成" : ""}</div>
+      <div class="name">${esc(s.name)}</div>
+      ${s.note ? `<div class="note">${marked.parseInline(s.note)}</div>` : ""}
+    </div>`).join("");
+}
+
+function renderSub() {
+  const saved = [...cards.values()].filter(c => !c.isNew).map(c => c.entry);
+  const last = saved.map(e => e.date).sort().pop();
+  const cs = currentStage();
+  document.getElementById("sub").textContent =
+    `当前阶段：${cs ? cs.name : "未设置"} · 共 ${saved.length} 张卡片` + (last ? ` · 最近更新 ${last}` : "");
+}
+
+// ---------- 卡片：查看 ----------
+function viewHtml(e) {
+  const exps = e.experiments.map(x => `
+    <div class="exp">
+      <div class="exp-head"><span>${esc(x.title || "未命名实验")}</span><span class="st ${x.status}">${STATUS[x.status]}</span></div>
+      ${x.content && x.content.trim() ? md(x.content) : ""}
+      ${x.result && x.result.trim() ? `<div class="result"><div class="label">结论</div>${md(x.result)}</div>` : ""}
+    </div>`).join("");
+  return `
+    <div class="card-head">
+      <span class="date">${esc(e.date)}</span><span class="weekday">${weekday(e.date)}</span>
+      ${e.stage ? `<span class="tag">${esc(e.stage)}</span>` : ""}
+      <button class="btn ghost" data-act="edit">编辑</button>
+    </div>
+    <div class="sec"><h3>任务</h3>${md(e.task)}</div>
+    <div class="sec"><h3>问题</h3>${md(e.problems)}</div>
+    <div class="sec"><h3>实验</h3>${exps || '<div class="empty">—</div>'}</div>`;
+}
+
+// ---------- 卡片：编辑 ----------
+function statusOptions(cur) {
+  return Object.entries(STATUS).map(([k, v]) => `<option value="${k}"${k === cur ? " selected" : ""}>${v}</option>`).join("");
+}
+function expEditHtml(x) {
+  return `<div class="exp-edit">
+    <div class="row">
+      <label class="field"><span>实验名称</span><input data-k="title" value="${esc(x.title)}"></label>
+      <label class="field narrow"><span>状态</span><select data-k="status">${statusOptions(x.status)}</select></label>
+    </div>
+    <label class="field"><span>内容</span><textarea data-k="content" rows="3">${esc(x.content)}</textarea></label>
+    <label class="field"><span>结论</span><textarea data-k="result" rows="1">${esc(x.result)}</textarea></label>
+    <button class="btn danger" data-act="del-exp">删除这个实验</button>
+  </div>`;
+}
+function editHtml(e, isNew) {
+  const stageNames = board.stages.map(s => s.name);
+  if (e.stage && !stageNames.includes(e.stage)) stageNames.push(e.stage);
+  const stageOpts = [`<option value="">（无）</option>`]
+    .concat(stageNames.map(n => `<option${n === e.stage ? " selected" : ""}>${esc(n)}</option>`)).join("");
+  return `
+    <div class="row">
+      <label class="field"><span>日期</span><input type="date" name="date" value="${esc(e.date)}" required></label>
+      <label class="field"><span>阶段</span><select name="stage">${stageOpts}</select></label>
+    </div>
+    <label class="field"><span>任务</span><textarea name="task" rows="3">${esc(e.task)}</textarea></label>
+    <label class="field"><span>问题</span><textarea name="problems" rows="3">${esc(e.problems)}</textarea></label>
+    <div class="field"><span>实验</span>
+      <div class="exps" style="display:flex;flex-direction:column;gap:10px">${e.experiments.map(expEditHtml).join("")}</div>
+      <button class="btn" data-act="add-exp" style="align-self:flex-start;margin-top:4px">＋ 添加实验</button>
+    </div>
+    <div class="actions">
+      <button class="btn primary" data-act="save">保存</button>
+      <button class="btn" data-act="cancel">取消</button>
+      <span class="msg"></span>
+      ${isNew ? "" : `<button class="btn danger" data-act="delete">删除卡片</button>`}
+    </div>`;
+}
+
+// fetch 连不上服务时抛出 TypeError，服务返回错误状态时由 api() 抛出 Error
+function failText(action, err) {
+  return err instanceof TypeError
+    ? `${action}失败：看板服务没有运行。请双击 start.command，再点一次${action}，已填写的内容不会丢失。`
+    : `${action}失败：${err.message}`;
+}
+
+function autoGrow(t) { t.style.height = "auto"; t.style.height = t.scrollHeight + 2 + "px"; }
+
+function readForm(el, id) {
+  return {
+    id,
+    date: el.querySelector('[name="date"]').value,
+    stage: el.querySelector('[name="stage"]').value,
+    task: el.querySelector('[name="task"]').value,
+    problems: el.querySelector('[name="problems"]').value,
+    experiments: [...el.querySelectorAll(".exp-edit")].map(x => ({
+      title: x.querySelector('[data-k="title"]').value.trim(),
+      status: x.querySelector('[data-k="status"]').value,
+      content: x.querySelector('[data-k="content"]').value,
+      result: x.querySelector('[data-k="result"]').value,
+    })),
+  };
+}
+
+function paint(c) {
+  c.el.classList.toggle("editing", c.editing);
+  c.el.innerHTML = c.editing ? editHtml(c.entry, c.isNew) : viewHtml(c.entry);
+  c.el.querySelectorAll("textarea").forEach(autoGrow);
+}
+
+function mount(entry, opts = {}) {
+  const el = document.createElement("article");
+  el.className = "card";
+  const c = { entry, el, editing: !!opts.editing, isNew: !!opts.isNew };
+  cards.set(entry.id, c);
+
+  el.addEventListener("input", ev => { if (ev.target.tagName === "TEXTAREA") autoGrow(ev.target); });
+  el.addEventListener("click", async ev => {
+    const btn = ev.target.closest("[data-act]");
+    if (!btn) return;
+    const act = btn.dataset.act;
+    if (act === "edit") { c.editing = true; paint(c); el.querySelector('[name="task"]').focus(); }
+    else if (act === "cancel") {
+      if (c.isNew) { el.remove(); cards.delete(entry.id); }
+      else { c.editing = false; paint(c); }
+    }
+    else if (act === "add-exp") {
+      const box = el.querySelector(".exps");
+      box.insertAdjacentHTML("beforeend", expEditHtml({ title: "", status: "planned", content: "", result: "" }));
+      box.lastElementChild.querySelectorAll("textarea").forEach(autoGrow);
+      box.lastElementChild.querySelector('[data-k="title"]').focus();
+    }
+    else if (act === "del-exp") btn.closest(".exp-edit").remove();
+    else if (act === "save") {
+      const next = readForm(el, entry.id);
+      if (!next.date) { el.querySelector(".msg").textContent = "请填写日期"; return; }
+      btn.disabled = true;
+      try {
+        c.entry = entry = await api("PUT", `/api/entries/${entry.id}`, next);
+      } catch (err) {
+        btn.disabled = false;
+        el.querySelector(".msg").textContent = failText("保存", err);
+        throw err;
+      }
+      c.editing = false; c.isNew = false;
+      paint(c); layout(); renderSub();
+    }
+    else if (act === "delete") {
+      if (!confirm(`删除 ${entry.date} 的卡片？`)) return;
+      try {
+        await api("DELETE", `/api/entries/${entry.id}`);
+      } catch (err) {
+        el.querySelector(".msg").textContent = failText("删除", err);
+        throw err;
+      }
+      el.remove(); cards.delete(entry.id); renderSub();
+    }
+  });
+  paint(c);
+  return c;
+}
+
+// 按日期从左到右、从旧到新排列；正在新建的卡片放在最后
+function layout() {
+  const list = [...cards.values()].sort((a, b) =>
+    (a.isNew - b.isNew) || a.entry.date.localeCompare(b.entry.date));
+  list.forEach(c => grid.appendChild(c.el));
+  filter();
+}
+
+function filter() {
+  const q = qInput.value.trim().toLowerCase();
+  for (const c of cards.values()) {
+    c.el.hidden = !!q && !c.editing && !JSON.stringify(c.entry).toLowerCase().includes(q);
+  }
+}
+
+document.getElementById("add").onclick = () => {
+  const cs = currentStage();
+  const entry = { id: crypto.randomUUID(), date: today(), stage: cs ? cs.name : "", task: "", problems: "", experiments: [] };
+  const c = mount(entry, { editing: true, isNew: true });
+  layout();
+  c.el.scrollIntoView({ behavior: "smooth", block: "center" });
+  c.el.querySelector('[name="task"]').focus();
+};
+qInput.addEventListener("input", filter);
+window.addEventListener("beforeunload", ev => {
+  if ([...cards.values()].some(c => c.editing)) ev.preventDefault();
+});
+
+(async () => {
+  if (location.protocol === "file:") {
+    document.getElementById("sub").textContent = "当前是直接打开的 index.html，读不到 data.json。请双击 start.command 启动看板。";
+    return;
+  }
+  board = await api("GET", "/api/data");
+  document.title = board.title;
+  document.getElementById("title").textContent = board.title;
+  renderPipeline();
+  board.entries.forEach(e => mount(e));
+  layout();
+  renderSub();
+})();
+</script>
+</body>
+</html>

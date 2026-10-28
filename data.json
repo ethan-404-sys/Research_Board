@@ -1,0 +1,55 @@
+{
+  "title": "漏检候选补漏 · 科研进度",
+  "stages": [
+    {
+      "name": "产生漏检候选",
+      "status": "done",
+      "note": "已拿到候选集合"
+    },
+    {
+      "name": "漏检候选分类",
+      "status": "done",
+      "note": "已分类；只负责第二类：孤立的漏检对象"
+    },
+    {
+      "name": "漏检候选判断器",
+      "status": "current",
+      "note": "目标：对 ≥75% 的第二类漏检候选判断正确",
+      "tried": [
+        "零样本 MLLM + 微调 MLLM",
+        "检测器元数据 → 简单 MLP",
+        "检测器元数据 + 简单图像特征 → MLP",
+        "exp6l：MLLM 逐候选判断补漏，AUC/AP 低于检测器 D"
+      ],
+      "verdict": "以上均未超过检测器自身概率"
+    },
+    {
+      "name": "调用工具的 MLLM",
+      "status": "todo",
+      "note": ""
+    }
+  ],
+  "entries": [
+    {
+      "id": "2026-10-27-a",
+      "date": "2026-10-27",
+      "stage": "漏检候选判断器",
+      "task": "- 已拿到分类后的漏检候选，只对**第二类**（孤立的漏检对象）负责。\n- 目标：训练出的判断器至少对 **75%** 的漏检候选给出正确判断。",
+      "problems": "1. 数据集正例很少，训练效果不好。\n2. 怎样利用数据集本身的信息？只靠检测器的信息不够，很难超越检测器本身。",
+      "experiments": [
+        {
+          "title": "MLLM 作为判断器",
+          "status": "planned",
+          "content": "- 改 Prompt：针对数据集的情况和特点重写提示词（早期 zero-shot 提示词很粗糙）\n- ICL：少样本 ICL；多查询批量放进单个请求\n- 微调：训练数据有变化，可以再简单试一次\n\n**候选模型**\n\n- `qwen3-vl-plus`：闭源首选\n- InternVL 系列：遥感上训练过，zero-shot 和 qwen3-vl 差不多，可做对比\n- Qwen3.5 系列",
+          "result": ""
+        },
+        {
+          "title": "变化检测器作为判断器",
+          "status": "planned",
+          "content": "- 待定",
+          "result": ""
+        }
+      ]
+    }
+  ]
+}
